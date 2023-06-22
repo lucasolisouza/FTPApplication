@@ -4,7 +4,7 @@ import java.net.Socket;
 
 public class FTPServer {
     public static void main(String[] args) {
-        int port = 21;
+        int port = 12384;
         
         try {
             ServerSocket serverSocket = new ServerSocket(port);
@@ -58,11 +58,66 @@ class ClientHandler implements Runnable {
                     writer.flush();
                     
                     // Enviar a lista de diretório para o cliente
-                    writer.write("Arquivo1.txt\r\n");
-                    writer.write("Arquivo2.txt\r\n");
+                    File directory = new File("C:\\Users\\lucas\\Documents\\Sistemais Operacionais"); // Diretório a ser listado
+                    File[] files = directory.listFiles();
+                    
+                    for (File file : files) {
+                        if (file.isFile()) {
+                            writer.write(file.getName() + "\r\n");
+                        }
+                    }
                     
                     writer.write("226 Listagem de diretório concluída.\r\n");
                     writer.flush();
+                }else if (line.startsWith("RETR")){
+                    // Lógica para processar o comando RETR
+                    String[] parts = line.split(" ");
+                    String filename = parts[1]; // Extrai o nome do arquivo a ser baixado
+                    
+                    File file = new File("C:\\Users\\lucas\\Documents\\Sistemais Operacionais\\FTPApplication\\" + filename); // Caminho completo para o arquivo
+                    
+                    if (file.exists() && file.isFile()) {
+                        writer.write("150 Iniciando transferência do arquivo.\r\n");
+                        writer.flush();
+                        
+                        FileInputStream fileInputStream = new FileInputStream(file);
+                        byte[] buffer = new byte[1024];
+                        int bytesRead;
+                        
+                        while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                            clientSocket.getOutputStream().write(buffer, 0, bytesRead);
+                        }
+                        
+                        fileInputStream.close();
+                        
+                        writer.write("226 Transferência de arquivo concluída.\r\n");
+                        writer.flush();
+                    } else {
+                        writer.write("550 Arquivo não encontrado.\r\n");
+                        writer.flush();
+                    } 
+                }else if (line.startsWith("STOR")) {
+                    // Lógica para processar o comando STOR
+                    String[] parts = line.split(" ");
+                    String filename = parts[1]; // Extrai o nome do arquivo a ser armazenado
+                    
+                    writer.write("150 Iniciando transferência do arquivo.\r\n");
+                    writer.flush();
+                    
+                    FileOutputStream fileOutputStream = new FileOutputStream("/path/to/directory/" + filename); // Caminho completo para o arquivo
+                    
+                    byte[] buffer = new byte[1024];
+                    int bytesRead;
+                    
+                    while ((bytesRead = clientSocket.getInputStream().read(buffer)) != -1) {
+                        fileOutputStream.write(buffer, 0, bytesRead);
+                    }
+                    
+                    fileOutputStream.close();
+                    
+                    writer.write("226 Transferência de arquivo concluída.\r\n");
+                    writer.flush();
+ 
                 } else if (line.startsWith("QUIT")) {
                     // Lógica para processar o comando QUIT
                     writer.write("221 Adeus.\r\n");

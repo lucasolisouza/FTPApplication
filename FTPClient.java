@@ -26,19 +26,24 @@ public class FTPClient {
             response = reader.readLine();
             System.out.println(response);
             
-            // Enviar comando de lista de diretório
-            sendCommand(writer, "LIST");
-            
-            // Ler a resposta do servidor
-            String line;
-            while ((line = reader.readLine()) != null) {
-                System.out.println(line);
-            }
-            
-            // Fechar conexão
-            sendCommand(writer, "QUIT");
-            response = reader.readLine();
-            System.out.println(response);
+            BufferedReader userInputR = new BufferedReader(new InputStreamReader(System.in));
+            String userInput;
+
+            do {
+                System.out.print("ftp> ");
+                userInput = userInputR.readLine();
+
+                sendCommand(writer, userInput);
+
+                // Ler e imprimir a resposta do servidor
+                String serverResponse;
+                while ((serverResponse = reader.readLine()) != null) {
+                    System.out.println(serverResponse);
+                    if (serverResponse.startsWith("226") || serverResponse.startsWith("250")) {
+                        break;
+                    }
+                }
+            } while (!userInput.equalsIgnoreCase("QUIT"));
             
             socket.close();
         } catch (IOException e) {
