@@ -1,21 +1,23 @@
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.Arrays;
 
 public class FTPServer {
+    public static final String DEFAULT_DIRECTORY = "C:\\Users\\lucas\\Documents\\RedesDeComputadoresI\\Server\\"; // Defina o diretório padrão para os arquivos
+
     public static void main(String[] args) {
-        int port = 12384;
-        
+        int controlPort = 12384;
+        int dataPort = 8888;
+
         try {
-            ServerSocket serverSocket = new ServerSocket(port);
-            System.out.println("Servidor FTP iniciado no porto " + port);
-            
+            ServerSocket controlSocket = new ServerSocket(controlPort);
+            System.out.println("Servidor FTP iniciado.");
+            System.out.println("Aguardando conexões na porta " + controlPort + "...");
+
             while (true) {
-                Socket clientSocket = serverSocket.accept();
-                System.out.println("Nova conexão estabelecida com o cliente " + clientSocket.getInetAddress());
-                
-                // Lidar com a conexão do cliente em uma thread separada
-                Thread clientThread = new Thread(new ClientHandler(clientSocket));
+                Socket clientSocket = controlSocket.accept();
+                Thread clientThread = new Thread(new ClientHandler(clientSocket, dataPort));
                 clientThread.start();
             }
         } catch (IOException e) {
@@ -25,114 +27,127 @@ public class FTPServer {
 }
 
 class ClientHandler implements Runnable {
-    private Socket clientSocket;
-    
-    public ClientHandler(Socket clientSocket) {
-        this.clientSocket = clientSocket;
+    private Socket controlSocket;
+    private int dataPort;
+    private String currentDirectory;
+
+    public ClientHandler(Socket controlSocket, int dataPort) {
+        this.controlSocket = controlSocket;
+        this.dataPort = dataPort;
+        this.currentDirectory = FTPServer.DEFAULT_DIRECTORY;
     }
-    
-    @Override
+
     public void run() {
         try {
-            BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
-            BufferedWriter writer = new BufferedWriter(new OutputStreamWriter(clientSocket.getOutputStream()));
-            
-            writer.write("220 Servidor FTP pronto.\r\n");
-            writer.flush();
-            
-            String line;
-            while ((line = reader.readLine()) != null) {
-                System.out.println("Comando recebido do cliente " + clientSocket.getInetAddress() + ": " + line);
-                
-                if (line.startsWith("USER")) {
-                    // Lógica para processar o comando USER
-                    writer.write("331 Senha necessária para o usuário.\r\n");
-                    writer.flush();
-                } else if (line.startsWith("PASS")) {
-                    // Lógica para processar o comando PASS
-                    writer.write("230 Login efetuado com sucesso.\r\n");
-                    writer.flush();
-                } else if (line.startsWith("LIST")) {
-                    // Lógica para processar o comando LIST
-                    writer.write("150 Iniciando listagem do diretório.\r\n");
-                    writer.flush();
-                    
-                    // Enviar a lista de diretório para o cliente
-                    File directory = new File("C:\\Users\\lucas\\Documents\\Sistemais Operacionais"); // Diretório a ser listado
-                    File[] files = directory.listFiles();
-                    
-                    for (File file : files) {
-                        if (file.isFile()) {
-                            writer.write(file.getName() + "\r\n");
-                        }
-                    }
-                    
-                    writer.write("226 Listagem de diretório concluída.\r\n");
-                    writer.flush();
-                }else if (line.startsWith("RETR")){
-                    // Lógica para processar o comando RETR
-                    String[] parts = line.split(" ");
-                    String filename = parts[1]; // Extrai o nome do arquivo a ser baixado
-                    
-                    File file = new File("C:\\Users\\lucas\\Documents\\Sistemais Operacionais\\FTPApplication\\" + filename); // Caminho completo para o arquivo
-                    
-                    if (file.exists() && file.isFile()) {
-                        writer.write("150 Iniciando transferência do arquivo.\r\n");
-                        writer.flush();
-                        
-                        FileInputStream fileInputStream = new FileInputStream(file);
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        
-                        while ((bytesRead = fileInputStream.read(buffer)) != -1) {
-                            clientSocket.getOutputStream().write(buffer, 0, bytesRead);
-                        }
-                        
-                        fileInputStream.close();
-                        
-                        writer.write("226 Transferência de arquivo concluída.\r\n");
-                        writer.flush();
-                    } else {
-                        writer.write("550 Arquivo não encontrado.\r\n");
-                        writer.flush();
-                    } 
-                }else if (line.startsWith("STOR")) {
-                    // Lógica para processar o comando STOR
-                    String[] parts = line.split(" ");
-                    String filename = parts[1]; // Extrai o nome do arquivo a ser armazenado
-                    
-                    writer.write("150 Iniciando transferência do arquivo.\r\n");
-                    writer.flush();
-                    
-                    FileOutputStream fileOutputStream = new FileOutputStream("/path/to/directory/" + filename); // Caminho completo para o arquivo
-                    
+            String clientAddress = controlSocket.getInetAddress().getHostAddress();
+            System.out.println("Conexão estabelecida com " + clientAddress);
+
+            BufferedReader controlReader = new BufferedReader(new InputStreamReader(controlSocket.getInputStream()));
+            PrintWriter controlWriter = new PrintWriter(controlSocket.getOutputStream(), true);
+
+            String command = controlReader.readLine();
+            String[] commandParts = command.split(" ");
+
+            if (commandParts[0].equals("RETR")) {
+                String filename = commandParts[1];
+                File file = new File(FTPServer.DEFAULT_DIRECTORY + filename);
+
+                if (file.exists()) {
+                    controlWriter.println("OK");
+
+                    // Cria um soquete de dados para o cliente
+                    ServerSocket dataSocket = new ServerSocket(dataPort);
+                    controlWriter.println(dataPort);
+
+                    Socket dataConnection = dataSocket.accept();
+                    BufferedOutputStream dataWriter = new BufferedOutputStream(dataConnection.getOutputStream());
+
+                    FileInputStream fileReader = new FileInputStream(file);
                     byte[] buffer = new byte[1024];
                     int bytesRead;
-                    
-                    while ((bytesRead = clientSocket.getInputStream().read(buffer)) != -1) {
-                        fileOutputStream.write(buffer, 0, bytesRead);
+
+                    while ((bytesRead = fileReader.read(buffer)) != -1) {
+                        dataWriter.write(buffer, 0, bytesRead);
                     }
-                    
-                    fileOutputStream.close();
-                    
-                    writer.write("226 Transferência de arquivo concluída.\r\n");
-                    writer.flush();
- 
-                } else if (line.startsWith("QUIT")) {
-                    // Lógica para processar o comando QUIT
-                    writer.write("221 Adeus.\r\n");
-                    writer.flush();
-                    break;
+
+                    fileReader.close();
+                    dataWriter.flush();
+                    dataWriter.close();
+                    dataConnection.close();
+                    dataSocket.close();
+
+                    System.out.println("Arquivo '" + filename + "' enviado para " + clientAddress);
                 } else {
-                    writer.write("502 Comando não implementado.\r\n");
-                    writer.flush();
+                    controlWriter.println("ERROR: Arquivo não encontrado");
                 }
+            } else if (commandParts[0].equals("LIST")) {
+                controlWriter.println("OK");
+
+                // Cria um soquete de dados para o cliente
+                ServerSocket dataSocket = new ServerSocket(dataPort);
+                controlWriter.println(dataPort);
+
+                Socket dataConnection = dataSocket.accept();
+                PrintWriter dataWriter = new PrintWriter(dataConnection.getOutputStream(), true);
+
+                File directory = new File(currentDirectory);
+                File[] files = directory.listFiles();
+
+                for (File file : files) {
+                     dataWriter.println(file.getName());
+                }
+
+                dataWriter.close();
+                dataConnection.close();
+                dataSocket.close();
+
+                System.out.println("Lista de arquivos enviada para " + clientAddress);
+            } else if (commandParts[0].equals("PWD")) {
+                controlWriter.println("OK");  //TODO: refazer a lógica do PWD.
+
+                String currentDirectory = getCurrentDirectory();
+                controlWriter.println(currentDirectory); 
+            } else if (commandParts[0].equals("STOR")) {
+                String filename = commandParts[1];
+                controlWriter.println("OK");
+
+                String directory = commandParts[2];
+                File file = new File(directory + "\\" + filename);
+
+                // Cria um soquete de dados para o cliente
+                ServerSocket dataSocket = new ServerSocket(dataPort);
+                controlWriter.println(dataPort);
+
+                Socket dataConnection = dataSocket.accept();
+                BufferedInputStream dataReader = new BufferedInputStream(dataConnection.getInputStream());
+
+                FileOutputStream fileWriter = new FileOutputStream(file);
+
+                byte[] buffer = new byte[1024];
+                int bytesRead;
+
+                while ((bytesRead = dataReader.read(buffer)) != -1) {
+                    fileWriter.write(buffer, 0, bytesRead);
+                }
+
+                fileWriter.close();
+                dataReader.close();
+                dataConnection.close();
+                dataSocket.close();
+
+                System.out.println("Arquivo '" + filename + "' recebido e salvo em: " + file.getAbsolutePath());
+            } else {
+                controlWriter.println("ERROR: Comando inválido");
             }
-            
-            clientSocket.close();
-            System.out.println("Conexão com o cliente " + clientSocket.getInetAddress() + " encerrada.");
+
+            controlSocket.close();
         } catch (IOException e) {
             e.printStackTrace();
         }
+    }
+
+    public String getCurrentDirectory() {
+        Path currentPath = Paths.get("");
+        return currentPath.toAbsolutePath().toString();
     }
 }
